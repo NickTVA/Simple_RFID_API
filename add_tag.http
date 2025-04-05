@@ -1,0 +1,8 @@
+POST http://localhost:8080/add
+Content-Type: application/json
+API_KEY: A1B2C3D4
+
+{
+  "username": "example",
+  "tag": "12345678"
+}
