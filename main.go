@@ -24,7 +24,7 @@ func main() {
 
 	err := godotenv.Load() //by default, it is .env so we don't have to write
 	if err != nil {
-		fmt.Println("Error is occurred  on .env file please check")
+		fmt.Println("Error has occurred  reading .env file")
 	}
 
 	NewRelicAgent, agentInitError := newrelic.NewApplication(newrelic.ConfigFromEnvironment())
