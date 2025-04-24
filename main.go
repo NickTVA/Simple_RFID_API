@@ -25,10 +25,12 @@ func main() {
 	err := godotenv.Load() //by default, it is .env so we don't have to write
 	if err != nil {
 		fmt.Println("Error has occurred  reading .env file")
-	}
+	} 
 
 	NewRelicAgent, agentInitError := newrelic.NewApplication(newrelic.ConfigFromEnvironment())
 	if agentInitError != nil {
+		fmt.Println("License Set: ",os.Getenv("NEW_RELIC_LICENSE_KEY"))
+		fmt.Println("AppName Set: ",os.Getenv("NEW_RELIC_APP_NAME"))
 		panic(agentInitError)
 	}
 
