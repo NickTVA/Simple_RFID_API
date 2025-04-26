@@ -33,6 +33,7 @@ func main() {
 		fmt.Println("AppName Set: ",os.Getenv("NEW_RELIC_APP_NAME"))
 		panic(agentInitError)
 	}
+	
 
 	// gin.SetMode(gin.ReleaseMode) //optional to not get warning
 	route := gin.Default()
@@ -68,6 +69,7 @@ func main() {
 func getTag(ctx *gin.Context) {
 	nrTxn := nrgin.Transaction(ctx)
 	tagId := ctx.Query("tag")
+	nrTxn.AddAttribute("tagId",tagId)
 
 	s := newrelic.DatastoreSegment{
 		Product:            newrelic.DatastorePostgres,
@@ -97,7 +99,7 @@ func getTag(ctx *gin.Context) {
 		username := ""
 		rows.Scan(&username)
 		fmt.Println("Found User: ",username)
-		fmt.Println(ctx.Data)
+		nrTxn.AddAttribute("user",username)
 		ctx.Data(http.StatusOK, "text/plain", []byte(username))
 		return
 
@@ -109,53 +111,63 @@ func getTag(ctx *gin.Context) {
 }
 
 func addTag(ctx *gin.Context) {
-	nrTxn := nrgin.Transaction(ctx)
-	body := Tag{}
+    nrTxn := nrgin.Transaction(ctx)
+    body := Tag{}
+	//nrTxn.AddAttribute("tagId",body.Tag)
+	//nrTxn.AddAttribute("user",body.Username)
 
-	restAPIKey := os.Getenv("REST_API_KEY")
-	apiKey := ctx.GetHeader("API_KEY")
+    restAPIKey := os.Getenv("REST_API_KEY")
+    apiKey := ctx.GetHeader("API_KEY")
 
-	if restAPIKey != apiKey {
+    if restAPIKey != apiKey {
+        nrTxn.NoticeError(errors.New("API key does not match"))
+        ctx.AbortWithStatusJSON(401, "Incorrect or missing API Key")
+        return
+    }
 
-		nrTxn.NoticeError(errors.New("API key does not match"))
-		ctx.AbortWithStatusJSON(401, "Incorrect or missing API Key")
-		return
-	}
-	//Check if the tag already exists
-	//if getTag(ctx).data == nil {
-	//	nrTxn.NoticeError(errors.New("Tag already exists"))
-	//	ctx.AbortWithStatusJSON(400, "Tag already exists")
-	//	return
-	//}
+    // Parse the request body
+    data, err := ctx.GetRawData()
+    if err != nil {
+        nrTxn.NoticeError(err)
+        ctx.AbortWithStatusJSON(400, "Tag is not defined")
+        return
+    }
+    err = json.Unmarshal(data, &body)
+    if err != nil {
+        nrTxn.NoticeError(err)
+        ctx.AbortWithStatusJSON(400, "Bad Input")
+        return
+    }
 
-	data, err := ctx.GetRawData()
-	if err != nil {
-		nrTxn.NoticeError(err)
-		ctx.AbortWithStatusJSON(400, "Tag is not defined")
-		return
-	}
-	err = json.Unmarshal(data, &body)
-	if err != nil {
-		nrTxn.NoticeError(err)
-		ctx.AbortWithStatusJSON(400, "Bad Input")
-		return
-	}
-	//use Exec whenever we want to insert update or delete
-	//Doing Exec(query) will not use a prepared statement, so lesser TCP calls to the SQL server
-	_, err = database.Db.Exec("insert into tags(username,tag) values ($1,$2)", body.Username, body.Tag)
-	if err != nil {
-		nrTxn.NoticeError(err)
-		fmt.Println(err)
-		ctx.AbortWithStatusJSON(400, "Couldn't create the new tag.")
-	} else {
-		ctx.JSON(http.StatusOK, "Tag is successfully created.")
-	}
+    // Check if the tag already exists
+    var existingUsername string
+    err = database.Db.QueryRow("select username from tags where tag=$1", body.Tag).Scan(&existingUsername)
+    if err == nil {
+        // Tag already exists
+        ctx.AbortWithStatusJSON(409, "Tag already exists")
+        return
+    } else if err != nil && err.Error() != "sql: no rows in result set" {
+        // Handle unexpected database errors
+        nrTxn.NoticeError(err)
+        ctx.AbortWithStatusJSON(500, "Internal Server Error")
+        return
+    }
 
+    // Insert the new tag
+    _, err = database.Db.Exec("insert into tags(username,tag) values ($1,$2)", body.Username, body.Tag)
+    if err != nil {
+        nrTxn.NoticeError(err)
+        fmt.Println(err)
+        ctx.AbortWithStatusJSON(400, "Couldn't create the new tag.")
+    } else {
+        ctx.JSON(http.StatusOK, "Tag is successfully created.")
+    }
 }
 
 func deleteTag(ctx *gin.Context) {
     nrTxn := nrgin.Transaction(ctx)
     tagId := ctx.Query("tag")
+	nrTxn.AddAttribute("tagId",tagId)
 
     // Define a New Relic DatastoreSegment for monitoring
     s := newrelic.DatastoreSegment{
