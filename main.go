@@ -55,6 +55,8 @@ func main() {
 
 	route.POST("/add", addTag)
 
+	route.GET("/del", deleteTag)
+
 	err = route.Run(":8080")
 	if err != nil {
 		panic(err)
@@ -94,7 +96,8 @@ func getTag(ctx *gin.Context) {
 	if rows.Next() {
 		username := ""
 		rows.Scan(&username)
-		print(username)
+		fmt.Println("Found User: ",username)
+		fmt.Println(ctx.Data)
 		ctx.Data(http.StatusOK, "text/plain", []byte(username))
 		return
 
@@ -118,6 +121,12 @@ func addTag(ctx *gin.Context) {
 		ctx.AbortWithStatusJSON(401, "Incorrect or missing API Key")
 		return
 	}
+	//Check if the tag already exists
+	//if getTag(ctx).data == nil {
+	//	nrTxn.NoticeError(errors.New("Tag already exists"))
+	//	ctx.AbortWithStatusJSON(400, "Tag already exists")
+	//	return
+	//}
 
 	data, err := ctx.GetRawData()
 	if err != nil {
@@ -142,4 +151,44 @@ func addTag(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, "Tag is successfully created.")
 	}
 
+}
+
+func deleteTag(ctx *gin.Context) {
+    nrTxn := nrgin.Transaction(ctx)
+    tagId := ctx.Query("tag")
+
+    // Define a New Relic DatastoreSegment for monitoring
+    s := newrelic.DatastoreSegment{
+        Product:            newrelic.DatastorePostgres,
+        Collection:         "tags",
+        Operation:          "DELETE",
+        ParameterizedQuery: "delete from tags where tag=$1",
+        QueryParameters: map[string]interface{}{
+            "tag": tagId,
+        },
+        Host:         "postgres",
+        PortPathOrID: "5432",
+        DatabaseName: "rfid",
+    }
+    s.StartTime = nrTxn.StartSegmentNow()
+
+    // Execute the DELETE query
+    result, err := database.Db.Exec("delete from tags where tag=$1", tagId)
+    s.End()
+    if err != nil {
+        nrTxn.NoticeError(err)
+		fmt.Println("Unable to delete tag:  ",tagId)
+        ctx.AbortWithStatusJSON(400, "Failed to delete the tag")
+        return
+    }
+
+    // Check if any rows were affected
+    rowsAffected, _ := result.RowsAffected()
+    if rowsAffected == 0 {
+		fmt.Println("Tag: ",tagId," not found")
+        ctx.AbortWithStatusJSON(404, "Tag not found")
+        return
+    }
+
+    ctx.JSON(http.StatusOK, "Tag successfully deleted")
 }
