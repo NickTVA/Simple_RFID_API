@@ -17,8 +17,9 @@ import (
 )	
 
 type Tag struct {
-	Username string
-	Tag      string
+    Username string    `json:"username"`
+    Tag      string    `json:"tag"`
+    Expire   time.Time `json:"expire"`
 }
 var logger zerolog.Logger
 var writer zerologWriter.ZerologWriter
@@ -36,7 +37,11 @@ func main() {
     // }
 
     // defer file.Close()
-
+    
+	//validate time elements
+	var time.Time = time.Now()
+	logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
+	quit := make(chan os.Signal, 1)
 
 	err := godotenv.Load() //by default, it is .env so we don't have to write
 	if err != nil {
@@ -105,6 +110,11 @@ func getTag(ctx *gin.Context) {
 	txnLogger := logger.Output(writer.WithTransaction(nrTxn))
 	txnLogger.Trace().Msg("Get Tag endpoint hit")
 
+	if isUserExpired(tagId) {
+		nrTxn.Info().Msg("User expired")
+		ctx.AbortWithStatusJSON(400, "User expired")
+		return
+
 	s := newrelic.DatastoreSegment{
 		Product:            newrelic.DatastorePostgres,
 		Collection:         "tags",
@@ -150,6 +160,7 @@ func addTag(ctx *gin.Context) {
     body := Tag{}
 	nrTxn.AddAttribute("tagId",body.Tag)
 	nrTxn.AddAttribute("user",body.Username)
+	nrTxn.AddAttribute("expireDate",body.expire)
 
     restAPIKey := os.Getenv("REST_API_KEY")
     apiKey := ctx.GetHeader("API_KEY")
@@ -194,7 +205,7 @@ func addTag(ctx *gin.Context) {
     }
 
     // Insert the new tag
-    _, err = database.Db.Exec("insert into tags(username,tag) values ($1,$2)", body.Username, body.Tag)
+    _, err = database.Db.Exec("insert into tags(username,tag) values ($1,$2,$3)", body.Username, body.Tag, body.Expire)
     if err != nil {
         nrTxn.NoticeError(err)
         txnLogger.Error().Err(err).Msg("Error inserting new tag")
@@ -246,4 +257,15 @@ func deleteTag(ctx *gin.Context) {
     }
 	txnLogger.Info().Str("tagId",tagId).Msg(`Tag successfully deleted`)
     ctx.JSON(http.StatusOK, "Tag successfully deleted")
+}
+func isUserExpired(tagId string) bool {
+	var expireTime time.Time
+	err := database.Db.QueryRow("select expire from tags where tag=$1", tagId).Scan(&expireTime)
+	if err != nil {
+		return false
+	}
+	logger.Debug().Msg("Expire time: " + expireTime.String())
+	logger.Debug().Msg("Current time: " + time.Now().String())
+	logger.Debug().Msg("Expire Difference" + time.Now().Sub(expireTime).String())
+	return time.Now().After(expireTime)
 }
