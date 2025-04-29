@@ -1,0 +1,9 @@
+POST http://localhost:8080/add
+Content-Type: application/json
+API_KEY: A1B2C3D4 
+
+{
+  "username": "Test User" ,
+  "tag": "123456789",
+  "expire":"2027-12-12 00:00:00.00012 -0500 CDT m=+0.000"
+}

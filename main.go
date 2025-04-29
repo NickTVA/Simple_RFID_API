@@ -39,9 +39,9 @@ func main() {
     // defer file.Close()
     
 	//validate time elements
-	var time.Time = time.Now()
-	logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
-	quit := make(chan os.Signal, 1)
+	var myTime = time.Now()
+	println("Current time: ", myTime.String())	
+	
 
 	err := godotenv.Load() //by default, it is .env so we don't have to write
 	if err != nil {
@@ -111,9 +111,10 @@ func getTag(ctx *gin.Context) {
 	txnLogger.Trace().Msg("Get Tag endpoint hit")
 
 	if isUserExpired(tagId) {
-		nrTxn.Info().Msg("User expired")
-		ctx.AbortWithStatusJSON(400, "User expired")
+		txnLogger.Info().Msg("User expired")
+		ctx.AbortWithStatusJSON(403, "User Access Expired")
 		return
+	}
 
 	s := newrelic.DatastoreSegment{
 		Product:            newrelic.DatastorePostgres,
@@ -160,7 +161,7 @@ func addTag(ctx *gin.Context) {
     body := Tag{}
 	nrTxn.AddAttribute("tagId",body.Tag)
 	nrTxn.AddAttribute("user",body.Username)
-	nrTxn.AddAttribute("expireDate",body.expire)
+	nrTxn.AddAttribute("expireDate",body.Expire)
 
     restAPIKey := os.Getenv("REST_API_KEY")
     apiKey := ctx.GetHeader("API_KEY")
@@ -187,6 +188,15 @@ func addTag(ctx *gin.Context) {
         ctx.AbortWithStatusJSON(400, "Bad Input")
         return
     }
+    // Set default values if fields are not provided
+    if body.Username == ""  {
+        body.Username = "guest_"+body.Tag // Default username
+        txnLogger.Debug().Msg("Username not provided. Setting default username: default_user")
+    }
+    if body.Expire.IsZero() {
+        body.Expire = time.Now().Add(24 * time.Hour) // Default expiration: 24 hours from now
+        txnLogger.Debug().Msg("Expire not provided. Setting default expiration to 24 hours from now")
+    }
 
     // Check if the tag already exists
     var existingUsername string
@@ -205,7 +215,7 @@ func addTag(ctx *gin.Context) {
     }
 
     // Insert the new tag
-    _, err = database.Db.Exec("insert into tags(username,tag) values ($1,$2,$3)", body.Username, body.Tag, body.Expire)
+    _, err = database.Db.Exec("insert into tags(username,tag,expire) values ($1,$2,$3)", body.Username, body.Tag, body.Expire)
     if err != nil {
         nrTxn.NoticeError(err)
         txnLogger.Error().Err(err).Msg("Error inserting new tag")
