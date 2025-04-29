@@ -111,8 +111,8 @@ func getTag(ctx *gin.Context) {
 	txnLogger.Trace().Msg("Get Tag endpoint hit")
 
 	if isUserExpired(tagId) {
-		txnLogger.Info().Msg("User expired")
-		ctx.AbortWithStatusJSON(403, "User Access Expired")
+		txnLogger.Info().Msg("User Access expired")
+		ctx.AbortWithStatusJSON(403, "Access Expired")
 		return
 	}
 
@@ -222,7 +222,7 @@ func addTag(ctx *gin.Context) {
         ctx.AbortWithStatusJSON(400, "Couldn't create the new tag.")
     } else {
 		txnLogger.Debug().Str("tag", body.Tag).Msg("Tag is successfully created")
-        ctx.JSON(http.StatusOK, "Tag is successfully created.")
+        ctx.JSON(http.StatusOK, "User Added")
     }
 }
 
@@ -266,7 +266,7 @@ func deleteTag(ctx *gin.Context) {
         return
     }
 	txnLogger.Info().Str("tagId",tagId).Msg(`Tag successfully deleted`)
-    ctx.JSON(http.StatusOK, "Tag successfully deleted")
+    ctx.JSON(http.StatusOK, "User Removed")
 }
 func isUserExpired(tagId string) bool {
 	var expireTime time.Time
