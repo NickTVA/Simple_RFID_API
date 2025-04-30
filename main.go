@@ -17,8 +17,9 @@ import (
 )	
 
 type Tag struct {
-	Username string
-	Tag      string
+    Username string    `json:"username"`
+    Tag      string    `json:"tag"`
+    Expire   time.Time `json:"expire"`
 }
 var logger zerolog.Logger
 var writer zerologWriter.ZerologWriter
@@ -36,7 +37,11 @@ func main() {
     // }
 
     // defer file.Close()
-
+    
+	//validate time elements
+	var myTime = time.Now()
+	println("Current time: ", myTime.String())	
+	
 
 	err := godotenv.Load() //by default, it is .env so we don't have to write
 	if err != nil {
@@ -105,6 +110,12 @@ func getTag(ctx *gin.Context) {
 	txnLogger := logger.Output(writer.WithTransaction(nrTxn))
 	txnLogger.Trace().Msg("Get Tag endpoint hit")
 
+	if isUserExpired(tagId) {
+		txnLogger.Info().Msg("User Access expired")
+		ctx.AbortWithStatusJSON(403, "Access Expired")
+		return
+	}
+
 	s := newrelic.DatastoreSegment{
 		Product:            newrelic.DatastorePostgres,
 		Collection:         "tags",
@@ -150,6 +161,7 @@ func addTag(ctx *gin.Context) {
     body := Tag{}
 	nrTxn.AddAttribute("tagId",body.Tag)
 	nrTxn.AddAttribute("user",body.Username)
+	nrTxn.AddAttribute("expireDate",body.Expire)
 
     restAPIKey := os.Getenv("REST_API_KEY")
     apiKey := ctx.GetHeader("API_KEY")
@@ -176,6 +188,15 @@ func addTag(ctx *gin.Context) {
         ctx.AbortWithStatusJSON(400, "Bad Input")
         return
     }
+    // Set default values if fields are not provided
+    if body.Username == ""  {
+        body.Username = "guest_"+body.Tag // Default username
+        txnLogger.Debug().Msg("Username not provided. Setting default username: default_user")
+    }
+    if body.Expire.IsZero() {
+        body.Expire = time.Now().Add(24 * time.Hour) // Default expiration: 24 hours from now
+        txnLogger.Debug().Msg("Expire not provided. Setting default expiration to 24 hours from now")
+    }
 
     // Check if the tag already exists
     var existingUsername string
@@ -194,14 +215,14 @@ func addTag(ctx *gin.Context) {
     }
 
     // Insert the new tag
-    _, err = database.Db.Exec("insert into tags(username,tag) values ($1,$2)", body.Username, body.Tag)
+    _, err = database.Db.Exec("insert into tags(username,tag,expire) values ($1,$2,$3)", body.Username, body.Tag, body.Expire)
     if err != nil {
         nrTxn.NoticeError(err)
         txnLogger.Error().Err(err).Msg("Error inserting new tag")
         ctx.AbortWithStatusJSON(400, "Couldn't create the new tag.")
     } else {
 		txnLogger.Debug().Str("tag", body.Tag).Msg("Tag is successfully created")
-        ctx.JSON(http.StatusOK, "Tag is successfully created.")
+        ctx.JSON(http.StatusOK, "User Added")
     }
 }
 
@@ -245,5 +266,16 @@ func deleteTag(ctx *gin.Context) {
         return
     }
 	txnLogger.Info().Str("tagId",tagId).Msg(`Tag successfully deleted`)
-    ctx.JSON(http.StatusOK, "Tag successfully deleted")
+    ctx.JSON(http.StatusOK, "User Removed")
+}
+func isUserExpired(tagId string) bool {
+	var expireTime time.Time
+	err := database.Db.QueryRow("select expire from tags where tag=$1", tagId).Scan(&expireTime)
+	if err != nil {
+		return false
+	}
+	logger.Debug().Msg("Expire time: " + expireTime.String())
+	logger.Debug().Msg("Current time: " + time.Now().String())
+	logger.Debug().Msg("Expire Difference" + time.Now().Sub(expireTime).String())
+	return time.Now().After(expireTime)
 }
